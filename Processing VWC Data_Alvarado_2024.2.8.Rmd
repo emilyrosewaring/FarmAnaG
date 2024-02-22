@@ -1,0 +1,145 @@
+
+```{r}
+
+
+# Libraries --------------------------------------------------------------------
+library(readr)
+library(lubridate)
+library(zoo)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(float)
+library(XLConnect)
+library(reshape)
+library(reshape2)
+library(MASS)
+
+#Port 1 – weather station 
+#Port 2 – 35 cm
+#Port 3 – 75 cm
+#Port 4 – 120 cm
+#Port 5 – 4 cm
+
+```
+
+```{r}
+# Creating list of files-------------------------------------------------------
+
+#Set Working Directory so that files save back in folder
+setwd('C:/Users/aalvarado55/OneDrive - University of California Merced/00_Alvarado_ESF Junior Specialist/03_Data/02_Soil Moisture_Volumetric Water Content/')
+
+soil_Em501 <- list.files("RawData/", pattern = "^Em50-1")
+soil_Em501
+
+soil_Em502 <- list.files("RawData/", pattern = "^Em50-2")
+soil_Em502
+
+
+# Reading and modifying files EM501---------------------------------------------
+moist_Em501 <- data.frame() #empty dataframe for saving each for loop result
+for(a in soil_Em501){
+#a <-soil_Em501[2]
+whatwewant <-  readxl::read_excel(paste("RawData/", a,sep=""),sheet = 1,col_names = F)
+portanames <- whatwewant[1,]
+ports_yes <- which(portanames != "Port 1") #All ports that are not port 1
+whatwewant<- whatwewant[,ports_yes] #selecting ports columns in the file
+moist_cols <- which(whatwewant[3,]== "m³/m³ VWC")
+whatwewant2 <- whatwewant[,c(1,moist_cols)] #selecting the columns with moisture data
+
+#Transforming the data frame into the three column format
+moist_data <- data.frame(whatwewant2)
+colnames(moist_data)<- moist_data[1,]
+moist_data2 <- melt(moist_data[-c(1:3),],id = c("Em50-1"))
+colnames(moist_data2) <- c("Date","Port","Moisture")
+#Changing the data format from the excel file
+moist_data2[,1] <- as.Date(as.numeric(moist_data2$Date), origin = "1899-12-30")
+#Saving info from file and joining to the other ones
+moist_Em501<- rbind(moist_Em501,moist_data2)
+}
+```
+```{r}
+# Reading and modifying files EM502---------------------------------------------
+moist_Em502 <- data.frame() #empty dataframe for saving each for loop result
+for(a in soil_Em502){
+
+  whatwewant <-  readxl::read_excel(paste("RawData/", a,sep=""),sheet = 1,col_names = F)
+  portanames <- whatwewant[1,]
+  ports_yes <- which(portanames != "Port 1") #All ports that are not port 1
+  whatwewant<- whatwewant[,ports_yes] #selecting ports columns in the file
+  moist_cols <- which(whatwewant[3,]== "m³/m³ VWC")
+  whatwewant2 <- whatwewant[,c(1,moist_cols)] #selecting the columns with moisture data
+  
+  #Transforming the data frame into the three column format
+  moist_data <- data.frame(whatwewant2)
+  colnames(moist_data)<- moist_data[1,]
+  moist_data2 <- melt(moist_data[-c(1:3),],id = c("Em50-2"))
+  colnames(moist_data2) <- c("Date","Port","Moisture")
+  #Changing the data format from the excel file
+  moist_data2[,1] <- as.Date(as.numeric(moist_data2$Date), origin = "1899-12-30")
+  #Saving info from file and joining to the other ones
+  moist_Em502<- rbind(moist_Em502,moist_data2)
+}
+```
+```{r}
+# Combining files---------------------------------------------
+
+new_moist_Em501 <- moist_Em501 %>%
+  mutate(Sensor = "Em50-1")
+new_moist_Em501
+
+new_moist_Em502 <- moist_Em502 %>%
+  mutate(Sensor = "Em50-2")
+new_moist_Em502
+
+combined_sensors <- rbind(new_moist_Em501, new_moist_Em502)
+combined_sensors
+```
+
+
+```{r}
+
+# Reformat data frame to calculate daily mean VWC values--------------
+final_dataset <- combined_sensors %>%
+  mutate(Date = as.character(Date),
+         Moisture = as.double(Moisture)) %>%
+  dplyr::group_by(Date, Port, Sensor) %>%
+  dplyr::summarize(Moisture = mean(Moisture)) %>%
+  dplyr::rename(`Average Daily Moisture (m³/m³)` = Moisture) %>%
+  mutate(Date = as.Date(Date)) %>%
+  filter(Date > "2022-01-21") %>%
+  mutate(Port = ifelse(Port == "Port 2", "35 cm", ifelse(Port == "Port 3", "75 cm", ifelse(Port == "Port 4", "120 cm", "5 cm")))) 
+
+final_dataset
+
+final_dataset$Port <- factor(final_dataset$Port, levels = c("5 cm", "35 cm", "75 cm", "120 cm"))
+```
+
+```{r}
+
+GraphVWC1 <- ggplot(final_dataset %>% filter(Sensor == "Em50-1"), aes(x= Date, y=`Average Daily Moisture (m³/m³)`, color = Port)) +
+  geom_line()+
+scale_y_continuous(expand = c(0,0), limits = c(0,1),
+                     labels = scales::comma) +
+  scale_x_date(expand = c(0,0))+
+  theme_bw()+
+  guides(color=guide_legend(title="Depth"))+
+  labs(title = "Soil Moisture Values for ESF Sensor 1", y = "volumetric water content (m³/m³)", x = "") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+ggsave("daily_vwc_sensor1.png", GraphVWC1, dpi = 300,units="in", width=8,height=5)
+
+```
+
+
+```{r}
+GraphVWC2 <- ggplot(final_dataset %>% filter(Sensor == "Em50-2"), aes(x= Date, y=`Average Daily Moisture (m³/m³)`, color = Port)) +
+  geom_line()+
+  scale_y_continuous(expand = c(0,0), limits = c(0,1),
+                     labels = scales::comma) +
+  scale_x_date(expand = c(0,0))+
+  theme_bw()+   guides(color=guide_legend(title="Depth"))+
+  labs(title = "Soil Moisture Values for ESF Sensor 2", y = "volumetric water content (m³/m³)", x = "") +  theme(plot.title = element_text(hjust = 0.5)) 
+  
+ggsave("daily_vwc_sensor2.png", GraphVWC2, dpi = 300,units="in", width=8,height=5)
+```
